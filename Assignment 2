@@ -1,1 +1,84 @@
+PAISE = D("0.01")
+STD_FAT, STD_SNF, STEP = D("3.5"), D("8.5"), D("0.1")
+BONUS_LIMIT_LITRES = D("500")
+BONUS_PER_LITRE = D("0.50")
 
+RATE_CARDS = {                       # the ONLY place where rates live
+    "regular": {"base": D("30.00"), "fat": D("0.40"), "snf": D("0.30")},
+    "summer":  {"base": D("32.00"), "fat": D("0.45"), "snf": D("0.30")},
+}
+
+
+def season_for_month(month):
+    """Returns 'summer' for April-June (4..6), otherwise 'regular'."""
+    return "summer" if 4 <= month <= 6 else "regular"
+
+
+def money(x):
+    """Rounds a Decimal to whole paise, halves going up."""
+    return x.quantize(PAISE, rounding=ROUND_HALF_UP)
+
+
+def rate_per_litre(fat, snf, season="regular"):
+    """Returns Decimal Rs/litre; steps are pro-rata (7.5 steps allowed)."""
+    card = RATE_CARDS[season]
+    fat_steps = (D(str(fat)) - STD_FAT) / STEP
+    snf_steps = (D(str(snf)) - STD_SNF) / STEP
+    return money(card["base"] + fat_steps * card["fat"] + snf_steps * card["snf"])
+
+
+def payout(litres, fat, snf, season="regular"):
+    """Returns Decimal amount for one delivery, rounded to paise."""
+    return money(D(str(litres)) * rate_per_litre(fat, snf, season))
+
+
+def bonus(total_litres):
+    """Returns the ten-day bonus: Rs 0.50 on ALL litres if litres > 500."""
+    litres = D(str(total_litres))
+    return money(litres * BONUS_PER_LITRE) if litres > BONUS_LIMIT_LITRES else D("0.00")
+
+
+def ten_day_total(entries, season="regular"):
+    """entries: (litres, fat, snf). Returns (litres, payments, bonus, grand)."""
+    litres = sum((D(str(e[0])) for e in entries), D("0"))
+    pay = sum((payout(l, f, s, season) for l, f, s in entries), D("0.00"))
+    b = bonus(litres)
+    return litres, pay, b, pay + b
+
+
+# ---------------- tests and demo ----------------
+"""Assignment 1 - Task 12: Milk co-operative payment calculator (final design).
+Run:  python main.py
+"""
+
+
+def run_tests():
+    """Tests for both seasons, two-decimal readings and the 500 L bonus."""
+    assert rate_per_litre(4.25, 8.55) == D("33.15")
+    assert str(payout(10, 4.25, 8.55)) == "331.50"
+    assert str(rate_per_litre(4.25, 8.55, "summer")) == "35.53"
+    assert str(payout(10, 4.25, 8.55, "summer")) == "355.30"
+    assert str(rate_per_litre(3.47, 8.46)) == "29.76"
+    assert str(payout(8.5, 3.47, 8.46)) == "252.96"
+    assert str(payout(8.5, 3.47, 8.46, "summer")) == "269.88"
+    assert str(payout(12, 3.5, 8.5, "summer")) == "384.00"
+    assert str(ten_day_total([(250, 3.5, 8.5), (250, 3.5, 8.5)])[3]) == "15000.00"
+    assert str(ten_day_total([(250, 3.5, 8.5), (250.5, 3.5, 8.5)])[3]) == "15265.25"
+    assert str(ten_day_total([(250, 3.5, 8.5), (250.5, 3.5, 8.5)], "summer")[3]) == "16266.25"
+    assert [season_for_month(x) for x in (3, 4, 6, 7)] == ["regular", "summer", "summer", "regular"]
+    print("All 12 tests passed")
+
+
+def demo():
+    print("Season for months 3, 4, 6, 7:", [season_for_month(x) for x in (3, 4, 6, 7)])
+    for season in ("regular", "summer"):
+        r = rate_per_litre("4.25", "8.55", season)
+        print(f"{season:8s} fat 4.25 snf 8.55  rate {r}  10 L pays {payout(10, '4.25', '8.55', season)}")
+    entries = [(250, "3.50", "8.50"), (250.5, "3.50", "8.50")]
+    litres, pay, b, grand = ten_day_total(entries, "summer")
+    print(f"Summer ten-day: litres {litres}, payments {pay}, bonus {b}, grand total {grand}")
+
+
+if __name__ == "__main__":
+    run_tests()
+    demo()
