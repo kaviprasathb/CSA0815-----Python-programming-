@@ -1,1 +1,179 @@
 
+"""festreg_run.py - College Fest Registration Desk (Task 6, Stage 5)
+Ready to run:   python festreg_run.py
+It creates the package folder festreg/, the test input files (IT.txt is
+deliberately missing), runs the program and prints every generated file."""
+import os, sys, subprocess
+
+FILES = {
+    'festreg/__init__.py': r'''"""festreg - College fest registration desk package."""
+''',
+    'festreg/errors.py': r'''class InvalidRecord(Exception):
+    """A registration line is damaged or fails a validation rule."""
+''',
+    'festreg/validator.py': r'''from .errors import InvalidRecord
+
+
+def valid_email(email):
+    """String-method-only e-mail check."""
+    if email != email.strip() or " " in email or email.count("@") != 1:
+        return False
+    local, domain = email.split("@")
+    if not local or not domain or "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith(".") or ".." in domain:
+        return False
+    return len(domain.rsplit(".", 1)[1]) >= 2
+
+
+def parse_line(line):
+    """'reg,name,dept,email,ev1;ev2' -> dict, or raise InvalidRecord."""
+    parts = [p.strip() for p in line.strip().split(",")]
+    if len(parts) != 5:
+        raise InvalidRecord(f"expected 5 fields, found {len(parts)}")
+    reg, name, dept, email, events = parts
+    if not reg.isdigit():
+        raise InvalidRecord(f"register number {reg!r} is not numeric")
+    if not name:
+        raise InvalidRecord("name is empty")
+    if not valid_email(email):
+        raise InvalidRecord(f"invalid e-mail {email!r}")
+    chosen = [e.strip().title() for e in events.split(";") if e.strip()]
+    if not chosen:
+        raise InvalidRecord("no event chosen")
+    return {"reg": reg, "name": name.title(), "dept": dept.upper(),
+            "email": email.lower(), "events": chosen}
+''',
+    'festreg/reader.py': r'''from .errors import InvalidRecord
+from .validator import parse_line
+
+
+def read_department(path, seen, errors):
+    """Yield clean, non-duplicate records from one department file.
+    A missing / unreadable file is logged; it never stops the program."""
+    try:
+        f = open(path, "r", encoding="utf-8")
+    except FileNotFoundError:
+        errors.append((path, 0, "department file is missing"))
+        return
+    except PermissionError:
+        errors.append((path, 0, "permission denied"))
+        return
+    with f:
+        try:
+            for n, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                try:
+                    rec = parse_line(line)
+                except InvalidRecord as err:
+                    errors.append((path, n, str(err)))
+                    continue
+                if rec["reg"] in seen:                       # O(1) average
+                    errors.append((path, n, f"duplicate of {rec['reg']}"))
+                    continue
+                seen.add(rec["reg"])
+                yield rec
+        except UnicodeDecodeError as err:
+            errors.append((path, 0, f"bad encoding: {err.reason}"))
+''',
+    'festreg/writer.py': r'''import os
+
+
+def write_master(path, records):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("reg,name,dept,email,events\n")
+        for r in records:
+            f.write(f"{r['reg']},{r['name']},{r['dept']},{r['email']},"
+                    f"{';'.join(r['events'])}\n")
+
+
+def write_event_files(folder, records):
+    by_event = {}
+    for r in records:
+        for ev in r["events"]:
+            by_event.setdefault(ev, []).append(r)
+    os.makedirs(folder, exist_ok=True)
+    for ev, people in by_event.items():
+        with open(os.path.join(folder, ev.replace(" ", "_") + ".txt"), "w",
+                  encoding="utf-8") as f:
+            for r in people:
+                f.write(f"{r['reg']},{r['name']},{r['dept']}\n")
+    return {ev: len(p) for ev, p in by_event.items()}
+
+
+def write_errors(path, errors):
+    with open(path, "w", encoding="utf-8") as f:
+        for src, n, msg in errors:
+            f.write(f"{os.path.basename(src)} | line {n} | {msg}\n")
+
+
+def write_summary(path, files_read, total_lines_ok, counts, n_errors):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"Files processed : {files_read}\n")
+        f.write(f"Clean records   : {total_lines_ok}\n")
+        f.write(f"Rejected lines  : {n_errors}\n")
+        for ev, n in sorted(counts.items()):
+            f.write(f"Event {ev:<10}: {n}\n")
+''',
+    'festreg/main.py': r'''import os
+from .reader import read_department
+from .writer import (write_master, write_event_files, write_errors,
+                     write_summary)
+
+DEPARTMENTS = ["CSE", "ECE", "MECH", "CIVIL", "IT"]
+
+
+def run(in_dir, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+    seen, errors, master = set(), [], []
+    for dept in DEPARTMENTS:
+        path = os.path.join(in_dir, dept + ".txt")
+        master.extend(read_department(path, seen, errors))
+    write_master(os.path.join(out_dir, "master.csv"), master)
+    counts = write_event_files(os.path.join(out_dir, "events"), master)
+    write_errors(os.path.join(out_dir, "errors.log"), errors)
+    write_summary(os.path.join(out_dir, "summary.txt"), len(DEPARTMENTS),
+                  len(master), counts, len(errors))
+    return master, counts, errors
+
+
+if __name__ == "__main__":
+    import sys
+    try:
+        run(sys.argv[1] if len(sys.argv) > 1 else "input",
+            sys.argv[2] if len(sys.argv) > 2 else "output")
+    except OSError as err:              # e.g. output folder not writable
+        print("Cannot write reports:", err)
+        sys.exit(1)
+''',
+    'input/CSE.txt': r'''192521374,surendar m g,cse,surendar@example.com,Dance;Quiz
+192521375,Priya R,CSE,priya.r@example.com,Quiz;Singing
+192521376,Kiran S,CSE,kiran.s@example.com,Dance
+''',
+    'input/ECE.txt': r'''192531001,Anitha K,ECE,anitha@example.com,Singing
+192531002,Bala M,ECE,bala.example.com,Quiz
+192521375,Priya R,ECE,priya.r@example.com,Dance
+192531003,Charan V,ECE
+''',
+    'input/MECH.txt': r'''192541001,Dinesh P,MECH,dinesh@example.com,Dance;Drama
+192541002,Elan T,MECH,elan@example.in,Drama
+
+''',
+    'input/CIVIL.txt': r'''192551001,Farah N,CIVIL,farah@example.com,Quiz
+''',
+}
+
+for path, text in FILES.items():
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+r = subprocess.run([sys.executable, "-m", "festreg.main", "input", "output"])
+print("Program finished, exit status", r.returncode)
+print()
+for name in ("master.csv", "errors.log", "summary.txt",
+             os.path.join("events", "Dance.txt"), os.path.join("events", "Quiz.txt")):
+    print("-----", name, "-----")
+    with open(os.path.join("output", name), encoding="utf-8") as f:
+        print(f.read())
