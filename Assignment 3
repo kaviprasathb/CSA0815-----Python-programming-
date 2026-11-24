@@ -1,1 +1,34 @@
-
+import time, sys
+from functools import lru_cache
+sys.setrecursionlimit(5000)
+calls = 0
+def ways_naive(n):
+    global calls; calls += 1
+    if n <= 1: return 1
+    return ways_naive(n-1) + ways_naive(n-2)
+def ways_memo(n, memo=None):
+    global calls; calls += 1
+    if memo is None: memo = {}
+    if n <= 1: return 1
+    if n in memo: return memo[n]
+    memo[n] = ways_memo(n-1, memo) + ways_memo(n-2, memo)
+    return memo[n]
+def ways_loop(n):
+    global calls
+    a = b = 1
+    for _ in range(n-1): calls += 1; a, b = b, a+b
+    return b
+print(f"{'n':>3} | {'naive calls':>12} {'naive s':>9} | {'memo calls':>10} {'memo s':>9} | {'loop steps':>10} {'loop s':>9}")
+for n in (10, 20, 25, 30, 32):
+    row = []
+    for fn in (ways_naive, ways_memo, ways_loop):
+        calls = 0; s = time.perf_counter(); r = fn(n); e = time.perf_counter()-s
+        row.append((calls, e, r))
+    assert row[0][2] == row[1][2] == row[2][2]
+    print(f"{n:>3} | {row[0][0]:>12} {row[0][1]:>9.5f} | {row[1][0]:>10} {row[1][1]:>9.6f} | {row[2][0]:>10} {row[2][1]:>9.6f}")
+for n in (500, 1000):
+    out = []
+    for fn in (ways_memo, ways_loop):
+        calls = 0; s = time.perf_counter(); r = fn(n); e = time.perf_counter()-s; out.append((calls, e, r))
+    print(n, "memo calls", out[0][0], f"{out[0][1]:.6f}s", "| loop steps", out[1][0], f"{out[1][1]:.6f}s", "| equal:", out[0][2]==out[1][2])
+calls=0; s=time.perf_counter(); ways_naive(35); print("naive 35: calls", calls, f"{time.perf_counter()-s:.3f}s")
