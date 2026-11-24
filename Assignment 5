@@ -1,1 +1,45 @@
+import re, math
+from collections import Counter
 
+POS = {"good", "clean", "fast", "helpful", "improved"}
+NEG = {"bad", "dirty", "slow", "rude", "smoke", "broken"}
+NEGATORS = {"not", "never", "no"}
+POS_X = POS | {"great", "wonderful", "polite", "thanks", "thank", "happy", "nice", "kind", "grateful", "quickly", "better", "solved"}
+NEG_X = NEG | {"terrible", "ignored", "crashes", "crashed", "wrong", "late", "smelly", "noise", "unsafe", "sick"}
+STOP = set("a an the and or but is are was were be been to of in on at for with it this that i we you he she they my our your their me us them from by as so if then than there here do did does have has had not no never very please also just again will would can could".split())
+
+def words_of(text):
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+def score(text, pos=POS, neg=NEG):
+    w = words_of(text); t = 0
+    for i, x in enumerate(w):
+        v = 1 if x in pos else -1 if x in neg else 0
+        if v and i > 0 and w[i-1] in NEGATORS:
+            v = -v
+        t += v
+    return t
+
+def label(text, pos=POS, neg=NEG):
+    s = score(text, pos, neg)
+    return "positive" if s > 0 else "negative" if s < 0 else "neutral"
+
+def sentences(text):
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+
+def summarise(text, k=1):
+    sents = sentences(text)
+    if len(sents) <= k:
+        return sents, list(range(len(sents)))
+    freq = Counter(w for w in words_of(text) if w not in STOP)
+    sc = [sum(freq[w] for w in words_of(s) if w not in STOP) for s in sents]
+    top = sorted(sorted(range(len(sents)), key=lambda i: (-sc[i], i))[:k])
+    return [sents[i] for i in top], top
+
+def first_k(text, k=1):
+    s = sentences(text)[:k]
+    return s, list(range(len(s)))
+
+# --- tiny multinomial Naive Bayes (Laplace smoothing) ---
+class NB:
+    def fit(self, docs, labels):
