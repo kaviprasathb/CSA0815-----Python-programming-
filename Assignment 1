@@ -1,1 +1,85 @@
 
+import re, time, random
+TITLES = {"dr", "mr", "mrs", "ms", "prof", "shri", "smt"}
+
+def norm_phone(s):
+    d = re.sub(r"\D", "", s or "")
+    return d[-10:] if len(d) >= 10 else ""
+
+def norm_name(s):
+    w = [x for x in re.findall(r"[a-z]+", (s or "").lower()) if x not in TITLES]
+    return " ".join(w)
+
+def keys_of(c):
+    k = {"n:" + norm_phone(p) for p in c.get("phones", []) if norm_phone(p)}
+    k |= {"e:" + e.strip().lower() for e in c.get("emails", []) if e.strip()}
+    return k
+
+def merge(contacts):
+    recs, index, nid = {}, {}, 0
+    for c in contacts:
+        keys = keys_of(c)
+        hit = {index[k] for k in keys if k in index}
+        if hit:
+            rid = min(hit)
+            for o in hit - {rid}:
+                r = recs.pop(o)
+                for f in ("names", "phones", "emails"): recs[rid][f] |= r[f]
+                for k in {"n:" + p for p in r["phones"]} | {"e:" + e for e in r["emails"]}: index[k] = rid
+        else:
+            rid = nid; nid += 1
+            recs[rid] = {"names": set(), "phones": set(), "emails": set()}
+        r = recs[rid]
+        if norm_name(c.get("name")): r["names"].add(norm_name(c["name"]))
+        r["phones"] |= {norm_phone(p) for p in c.get("phones", []) if norm_phone(p)}
+        r["emails"] |= {e.strip().lower() for e in c.get("emails", []) if e.strip()}
+        for k in keys: index[k] = rid
+    return list(recs.values())
+
+small = [
+ {"name": "Dr. Ravi", "phones": ["+91 98400 12345"], "emails": []},
+ {"name": "ravi kumar", "phones": ["9840012345", "098400 12345"], "emails": ["Ravi@x.com"]},
+ {"name": "Meena", "phones": ["98765 43210"], "emails": []},
+ {"name": "Ravi Kumar", "phones": ["9000000001"], "emails": []},
+ {"name": "M. Meena", "phones": [], "emails": ["meena@x.com"]},
+ {"name": "Meena S", "phones": ["+91-98765-43210"], "emails": ["meena@x.com"]},
+ {"name": "", "phones": ["044 2345 6789"], "emails": []},
+ {"name": "Anil", "phones": [], "emails": []},
+]
+res = merge(small)
+for r in sorted(res, key=lambda r: sorted(r["phones"])):
+    print({k: sorted(v) for k, v in r.items()})
+print("records:", len(res), "(hand-merged expectation: 5 = Ravi, Ravi Kumar #2, Meena group, landline, Anil)")
+assert len(res) == 5
+
+def naive_merge(contacts):
+    ks = [keys_of(c) for c in contacts]; parent = list(range(len(ks)))
+    def find(x):
+        while parent[x] != x: parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    for i in range(len(ks)):
+        for j in range(i + 1, len(ks)):
+            if ks[i] & ks[j]: parent[find(i)] = find(j)
+    return len({find(i) for i in range(len(ks)) if ks[i]}) + sum(1 for k in ks if not k)
+
+def synth(n):
+    random.seed(11); people = max(1, int(n / 2.5))
+    nums = ["9%09d" % random.randrange(10**9) for _ in range(people)]
+    fmt = [lambda x: x, lambda x: "+91 %s %s" % (x[:5], x[5:]), lambda x: "0" + x, lambda x: "%s-%s" % (x[:5], x[5:])]
+    names = ["Dr. Ravi", "ravi kumar", "Meena S", "Arun", "Priya R", "Mr. Karthik"]
+    out = []
+    for _ in range(n):
+        p = random.randrange(people)
+        out.append({"name": random.choice(names), "phones": [random.choice(fmt)(nums[p])], "emails": []})
+    return out, people
+
+print("\n%9s %14s %16s %16s" % ("contacts", "merged records", "dict merge ms", "pairwise ms"))
+for n in (1000, 4000, 100000):
+    C, people = synth(n)
+    s = time.perf_counter(); r = merge(C); t1 = time.perf_counter() - s
+    if n <= 4000:
+        s = time.perf_counter(); k = naive_merge(C); t2 = time.perf_counter() - s
+        assert k == len(r); p = "%.1f" % (t2 * 1e3)
+    else:
+        p = "~%.0f s (est.)" % (t2 / (4000**2) * n**2)
+    print("%9d %14d %16.1f %16s" % (n, len(r), t1 * 1e3, p))
